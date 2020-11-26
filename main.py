@@ -3,27 +3,47 @@ import cv2 as cv
 import numpy as np
 from genetic_algorithm import GeneticAlgorithm
 import utils
+from individual import Individual
+from gen_record import GenRecord
 
 IMG_SIZE = 256
 
 # read target image
-img = cv.imread("apples.jpg", cv.IMREAD_GRAYSCALE)
+img = cv.imread("face.png", cv.IMREAD_GRAYSCALE)
 img = cv.resize(img, (IMG_SIZE, IMG_SIZE))
 
-ga = GeneticAlgorithm(img, num_gens=10000, init_pop=100, new_per_gen=50, mut_pct=0.25)
-best_individuals = ga.run_simulation()
+ga = GeneticAlgorithm(img, num_gens=1000000, init_pop=20, new_per_gen=10, mut_pct=0.001, checkpoints=100)
+print(f'Best fitness {ga.max_fitness}')
+input('Press any key to begin simulation...')
+ga_results = ga.run_simulation()
 
-print('\nbest individuals of each generation...')
-for i in range(len(best_individuals)):
-    print(f'{i}: {best_individuals[i].fitness}')
+# process GA results
+imgs = []
+for r in ga_results:
+  img = chromosome2img(r.chromosome, (IMG_SIZE, IMG_SIZE))
+  imgs.append(img)
+  cv.imwrite(f'./output/img/best_{r.gen_number}.png', img)
+# append target image
+imgs = [img] + imgs
 
-best_img = [utils.chromosome2img(x.chromosome, (IMG_SIZE, IMG_SIZE)) for x in best_individuals]
-
-fig, axs = plt.subplots(nrows=1, ncols=5, figsize=(9, 6))
-axs[0].imshow(img, cmap='gray')
-axs[0].axis('off')
-for ax, img in zip(axs[1:].flat, best_img):
-    ax.imshow(img, cmap='gray')
-    ax.axis('off')
+# show image results
+cols = 5
+rows = len(imgs) // cols
+fig, axs = plt.subplots(nrows=rows, ncols=cols, figsize=(10, 10))
+for r in range(rows):
+    for c in range(cols):
+        axs[r][c].imshow(imgs[r + c], cmap='gray')
+        axs[r][c].axis('off')
 plt.tight_layout()
+plt.show()
+
+# show how fitness was improving
+xs = [x.gen_number for x in ga_results]
+ys = [x.fitness for x in ga_results]
+fig, ax = plt.subplots()
+ax.plot(xs, ys)
+ax.set(xlabel='Número de Generación', ylabel='Fitness',
+       title='Evolución de Fitness')
+ax.grid()
+fig.savefig("fitness.png")
 plt.show()

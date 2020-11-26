@@ -1,11 +1,5 @@
-from individual import Individual
-import numpy as np
-import utils
-from copy import deepcopy
-import cv2 as cv
-
 class GeneticAlgorithm:
-    def __init__(self, target_img, init_pop=100, num_gens=1000, new_per_gen=10, mut_pct=0.1):
+    def __init__(self, target_img=None, init_pop=100, num_gens=1000, new_per_gen=10, mut_pct=0.1, checkpoints=2):
         """Initialize the genetic algorithm.
         
         target_img: target image of this algorithm. All individuals will
@@ -20,14 +14,19 @@ class GeneticAlgorithm:
         self.new_per_gen = new_per_gen
         self.population = []
         self.target_img = target_img
-        self.target_chrom = utils.img2chromosome(target_img)
+        self.target_chrom = img2chromosome(target_img)
+        self.target_chrom_length = len(self.target_chrom)
+        self.target_chrom_length_half = self.target_chrom_length // 2
+        self.best_ind = Individual(self.target_chrom)
+        self.max_fitness = np.sum(self.best_ind.chromosome)
+        self.checkpoints = checkpoints
 
     def init_population(self):
         """Create the initial individuals of the population.
         """
         for _ in range(self.init_pop):
-            new_chrom = utils.random_img(img_size=self.target_img.shape[0])
-            new_chrom = utils.img2chromosome(new_chrom)
+            new_chrom = random_img(img_size=self.target_img.shape[0])
+            new_chrom = img2chromosome(new_chrom)
             self.population.append(Individual(new_chrom))
 
     def calc_fitness(self, ind):
@@ -35,9 +34,9 @@ class GeneticAlgorithm:
 
         ind: individual to calculate fitness.
         """
-        diff = np.abs(self.target_chrom - ind.chromosome)
-        diff = np.sum(self.target_chrom - diff)
-        ind.fitness = diff
+        quality = np.mean(np.abs(self.target_chrom - ind.chromosome))
+        quality = np.sum(self.target_chrom) - quality
+        ind.fitness = quality
     
     def update_population_fitness(self):
         """Updates the fitness of every individual in the population.
@@ -51,7 +50,7 @@ class GeneticAlgorithm:
         """
         self.population = sorted(
             self.population,
-            key=lambda i: -i.fitness
+            key=lambda i: i.fitness
         )
 
     def create_parent_pairs(self):
@@ -60,13 +59,13 @@ class GeneticAlgorithm:
         Returns a list of pairs of integers. Each integer representing
         the index of the parent in the current population.
         """
-        pairs = [(i, i + 1) for i in range(self.new_per_gen)]
-        # while len(pairs) < self.new_per_gen:
-        #     a = np.random.randint(0, self.new_per_gen)
-        #     b = np.random.randint(0, self.new_per_gen)
-        #     if a == b:
-        #         continue
-        #     pairs.append((a, b))
+        pairs = []
+        while len(pairs) < self.new_per_gen:
+            a = np.random.randint(0, self.new_per_gen)
+            b = np.random.randint(0, self.new_per_gen)
+            if a == b:
+                continue
+            pairs.append((a, b))
 
         return pairs
 
@@ -97,13 +96,19 @@ class GeneticAlgorithm:
         """
         p0 = self.population[p0].chromosome
         p1 = self.population[p1].chromosome
-        # length = len(p0)
-        # rand_index = np.random.randint(0, length)
-        # p0_half = p0[:rand_index]
-        # p1_half = p1[rand_index:]
-        # new_chrom = np.concatenate([p0_half, p1_half])
-        new_chrom = np.uint8(0.5 * p0) + np.uint8(0.5 * p1)
         
+        # new chromosome filled with zeros
+        new_chrom = np.zeros(self.target_chrom_length, dtype=np.uint8)
+
+        rand_index = np.random.randint(0, self.target_chrom_length)
+        p0_half = p0[:rand_index]
+        p1_half = p1[rand_index:]
+        new_chrom[:rand_index] = p0[:rand_index]
+        new_chrom[rand_index:] = p1[rand_index:]
+        
+        # new_chrom[:self.target_chrom_length_half] = p0[:self.target_chrom_length_half]
+        # new_chrom[self.target_chrom_length_half:] = p1[self.target_chrom_length_half:]
+
         return Individual(new_chrom)
 
     def mutate(self, ind):
@@ -112,19 +117,17 @@ class GeneticAlgorithm:
         ind: individual to mutate.
         p: probability of mutation.
         """
-        # if np.random.random() < self.mut_pct:
-        #     mask = np.random.randint(256, size=len(self.target_chrom))
-        #     ind.chromosome = np.uint8(ind.chromosome + mask)
-        l = len(self.target_chrom)
-        r = [np.uint32(np.random.random() * l) for _ in range(l//10)]
-        ind.chromosome[r] = [np.uint8(np.random.random() * 256)]
+        r = [np.uint32(np.random.random() * self.target_chrom_length) \
+            for _ in range(np.uint32(self.target_chrom_length * self.mut_pct))]
+        new_vals = np.uint8(np.random.random(len(r)) * 256)
+        ind.chromosome[r] = new_vals
 
     def run_simulation(self):
         """Simulation loop.
 
         Returns.
         """
-        best_individuals = []
+        gen_records = []
 
         # initialize population
         self.init_population()
@@ -132,9 +135,6 @@ class GeneticAlgorithm:
         self.update_population_fitness()
         # sort initial population by fitness
         self.sort_population_by_fitness()
-        
-        # for p in self.population:
-        #     print(p.fitness)
 
         # simulation loop
         for i in range(self.num_gens):
@@ -147,14 +147,14 @@ class GeneticAlgorithm:
             # - sort population by fitness
             self.sort_population_by_fitness()
             # - drop worst individuals, configured on init
-            self.population = self.population[:-self.new_per_gen]
+            self.population = self.population[self.new_per_gen:]
             # - save best
-            if i % (self.num_gens // 4) == 0:
-                best_individuals.append(deepcopy(self.population[0]))
-          
-            print(f'Finished generation {i}, best: {self.population[0].fitness}')
+            if i % (self.num_gens // self.checkpoints) == 0:
+                best = self.population[-1]
+                gen_records.append(GenRecord(i, best.fitness, deepcopy(best.chromosome)))
+            print(f'Finished generation {i}, best: {self.population[-1].fitness}')
 
-        return best_individuals
+        return gen_records
 
     def get_best_individual(self):
         return self.population[0]
